@@ -1,0 +1,61 @@
+#!/bin/bash
+# a security script to check your cardano pool
+# generating pool.security with all info on your pool
+
+# check if any severe warnings are detected
+severewarning=0
+
+# write intro line
+echo "This is the pool_check script checking your node ..." > pool.security
+echo "Please respect that this script comes with no warrenty and is used at your own risk" >> pool.security
+echo "---------------" >> pool.security
+echo "" >> pool.security
+
+# first check if updates are availeable
+echo "-- checking for updates --" >> pool.security
+if [ `apt list --upgradeable 2>/dev/null | wc -l` = 1 ]
+then
+	echo "All packages are up to date" >> pool.security
+else
+ 	echo "Warning: Updates are available!" >> pool.security
+fi
+echo "---------------" >> pool.security
+echo "" >> pool.security
+
+# check for ssh daemons
+echo "-- checking your ssh config --" >> pool.security
+if [ `ps -ef | grep sshd | wc -l` -gt 0 ]
+then
+	
+	echo "ssh daemon running" >> pool.security
+	cat /etc/ssh/sshd_config  | grep "Port " >> pool.security
+	grep "#PermitRootLogin" /etc/ssh/sshd_config >> pool.security
+  grep "#PasswordAuthentication" /etc/ssh/sshd_config >> pool.security
+	grep "#MaxSessions" /etc/ssh/sshd_config >> pool.security
+	if [ "$(grep "#PasswordAuthentication" /etc/ssh/sshd_config)" = "#PasswordAuthentication yes" ]
+	then
+	severewarning=1
+	echo "Severe Warning! Please disable password authentication!" >> pool.security
+  fi
+else
+	echo "no ssh daemon running" >> pool.security
+fi
+echo "---------------" >> pool.security
+echo "" >> pool.security
+
+# checking active connections
+echo "-- active connections --" >> pool.security
+netstat -natp 2>/dev/null | sort | uniq -c | sort -nr >> pool.security
+echo "---------------" >> pool.security
+echo "" >> pool.security
+
+# checking open ports
+echo "-- open ports --" >> pool.security
+netstat -lntu >> pool.security
+echo "---------------" >> pool.security
+
+if [ $severewarning = 1 ]
+then
+echo "severe warnings were detected - please check pool.security carefully"
+fi
+
