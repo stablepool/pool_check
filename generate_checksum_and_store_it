@@ -1,0 +1,15 @@
+#!/bin/bash
+#calculates the hash of the pool.security file and stores it
+FILE=pool.security
+working_dir=$( pwd )
+if [ -f "$FILE" ]; then
+    echo "$FILE exists."
+		checksum=$( cksum "$working_dir"/pool.security )
+    echo "MD checksum is:", $checksum
+		echo "storing checksum in /etc/pool_check.checksum"
+		echo $checksum > /etc/pool_check.checksum
+else 
+    echo "$FILE does not exist."
+    echo "please run pool_check first to generate it!"
+fi
+

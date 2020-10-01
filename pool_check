@@ -2,60 +2,163 @@
 # a security script to check your cardano pool
 # generating pool.security with all info on your pool
 
+#set the file path for the pool.security file
+#adjust this the place you want to store pool.security!
+filepath="/home/user/pool_check"
+email="your_email@provider.com"
+
+#initialize the variables
+sendmail=0
+checkforchanges=0
+checkloadaverage=0
+loadtoohigh=0
+updatesneeded=0
+checkfileexists=0
+
+### read in the input file
+#!/bin/bash
+filename="$filepath/define_checks"
+n=1
+while read line; do
+# reading each line
+	if [ $line = "send_mail" ] 
+	then
+		sendmail=1
+		#echo "mail activated on line ", $n
+	elif [ $line = "check_for_changes" ] 
+	then
+		FILE=/etc/pool_check.checksum
+		if [ -f "$FILE" ]; then
+			checkforchanges=1
+			checkfileexists=1
+		else 
+    	echo "$FILE checksum file does not exist."
+    	echo "please run generate_checksum_and_store_it once to generate and store it!"
+			echo "checks are now deactivated until you generate the checksum file"
+		fi
+		#echo "checks activated on line ", $n
+	elif [ $line = "check_load_average" ] 
+	then
+		checkloadaverage=1
+		#echo "checks activated on line ", $n
+	fi
+	n=$((n+1))
+done < $filename
+### read in the input file
+
+
 # check if any severe warnings are detected
 severewarning=0
 
+# get the system info needed for the checks
+if [ $checkloadaverage = 1 ]
+then
+		#get the number of cpu cores to check the load average
+		cpucores=( `grep MHz /proc/cpuinfo | wc -l` )
+		loadaverage=$(uptime | awk -F "load average: " '{print $2}' | awk -F"," '{print $2}')
+		#check if load average > maxcores-1
+		maxcores=$( expr $cpucores - 1 )
+	  maxload=$( expr 100 \* $maxcores )
+		if (( $maxload < $loadaverage ))
+		then
+			loadtoohigh=1
+		fi  
+fi
+
 # write intro line
-echo "This is the pool_check script checking your node ..." > pool.security
-echo "Please respect that this script comes with no warrenty and is used at your own risk" >> pool.security
-echo "---------------" >> pool.security
-echo "" >> pool.security
+echo "This is the pool_check script checking your node ..." > $filepath/pool.security
+echo "Please respect that this script comes with no warrenty and is used at your own risk" >> $filepath/pool.security
+echo "---------------" >> $filepath/pool.security
+echo "" >> $filepath/pool.security
 
 # first check if updates are availeable
-echo "-- checking for updates --" >> pool.security
+echo "-- checking for updates --" >> $filepath/pool.security
 if [ `apt list --upgradeable 2>/dev/null | wc -l` = 1 ]
 then
-	echo "All packages are up to date" >> pool.security
+	echo "All packages are up to date" >> $filepath/pool.security
 else
- 	echo "Warning: Updates are available!" >> pool.security
+ 	echo "Warning: Updates are available!" >> $filepath/pool.security
+	updatesneeded=1
 fi
-echo "---------------" >> pool.security
-echo "" >> pool.security
+echo "---------------" >> $filepath/pool.security
+echo "" >> $filepath/pool.security
 
 # check for ssh daemons
-echo "-- checking your ssh config --" >> pool.security
+echo "-- checking your ssh config --" >> $filepath/pool.security
 if [ `ps -ef | grep sshd | wc -l` -gt 0 ]
 then
 	
-	echo "ssh daemon running" >> pool.security
-	cat /etc/ssh/sshd_config  | grep "Port " >> pool.security
-	grep "#PermitRootLogin" /etc/ssh/sshd_config >> pool.security
-  grep "#PasswordAuthentication" /etc/ssh/sshd_config >> pool.security
-	grep "#MaxSessions" /etc/ssh/sshd_config >> pool.security
-	if [ "$(grep "#PasswordAuthentication" /etc/ssh/sshd_config)" = "#PasswordAuthentication yes" ]
+	echo "ssh daemon running" >> $filepath/pool.security
+	cat /etc/ssh/sshd_config  | grep "Port " >> $filepath/pool.security
+	grep "PermitRootLogin" /etc/ssh/sshd_config >> $filepath/pool.security
+  grep "PasswordAuthentication" /etc/ssh/sshd_config >> $filepath/pool.security
+	grep "MaxSessions" /etc/ssh/sshd_config >> $filepath/pool.security
+	if [ "$(grep "PasswordAuthentication" /etc/ssh/sshd_config)" = "PasswordAuthentication yes" ]
 	then
 	severewarning=1
-	echo "Severe Warning! Please disable password authentication!" >> pool.security
+	echo "Severe Warning! Please disable password authentication!" >> $filepath/pool.security
   fi
 else
-	echo "no ssh daemon running" >> pool.security
+	echo "no ssh daemon running" >> $filepath/pool.security
 fi
-echo "---------------" >> pool.security
-echo "" >> pool.security
+echo "---------------" >> $filepath/pool.security
+echo "" >> $filepath/pool.security
 
 # checking active connections
-echo "-- active connections --" >> pool.security
-netstat -natp 2>/dev/null | sort | uniq -c | sort -nr >> pool.security
-echo "---------------" >> pool.security
-echo "" >> pool.security
+echo "-- active connections --" >> $filepath/pool.activeconnections
+netstat -natp 2>/dev/null | sort | uniq -c | sort -nr >> $filepath/pool.activeconnections
+echo "---------------" >> $filepath/pool.activeconnections
 
 # checking open ports
-echo "-- open ports --" >> pool.security
-netstat -lntu >> pool.security
-echo "---------------" >> pool.security
+echo "-- open ports --" >> $filepath/pool.activeconnections
+netstat -lntu >> $filepath/pool.activeconnections
+echo "---------------" >> $filepath/pool.activeconnections
+
+#check ufw
+echo "-- firewall (ufw) --" >> $filepath/pool.security
+dpkg-query -s ufw >> $filepath/pool.security 2>> $filepath/pool.security
+echo "---------------" >> $filepath/pool.security
+
+#check the cardano-node
+echo "-- cardano-node --" >> $filepath/pool.security
+numberofnodeinstances=$( pgrep -c cardano-node )
+if [ $numberofnodeinstances = "0" ]
+then
+	severewarning=1
+	echo "Severe Warning! - cardano-node is not running!" >> $filepath/pool.security
+else
+	echo "instances of cardano-node running: ", "$numberofnodeinstances" >> $filepath/pool.security
+fi
+echo "---------------" >> $filepath/pool.security
+
+# check the checksum if wanted
+if [ $checkforchanges = 1 ] && [ $checkfileexists = 1 ]
+then
+	checksum=$( cksum "$filepath"/pool.security )
+	checksum_stored=$(< /etc/pool_check.checksum)
+	if [ "$checksum" = "$checksum_stored" ]
+	then
+		echo "all good - checksums match" >> $filepath/pool.security
+	else
+		severewarning=1
+		echo "Severe Warning! - checksums DO NOT match" >> $filepath/pool.security
+	fi
+fi
+
+#check the load average
+if [ $loadtoohigh = 1 ]
+then
+	severewarning=1
+	echo "Severe Warning! - load average TOO HIGH" >> $filepath/pool.security
+fi
 
 if [ $severewarning = 1 ]
 then
-echo "severe warnings were detected - please check pool.security carefully"
+	if [ $sendmail = 1 ]
+	then
+		mail -s "warnings were detected" "$email" <<< $filepath/pool.security
+	else
+		echo "severe warnings were detected - please check pool.security carefully"
+	fi
 fi
 
